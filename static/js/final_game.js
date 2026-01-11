@@ -53,11 +53,13 @@ const gameImage = document.getElementById('game-image');
 const scoreElement = document.getElementById('score');
 // const episodeElement = document.getElementById('episode');
 const stepsElement = document.getElementById('steps');
-const rewardElement = document.getElementById('reward');
 const nextEpisodeButton = document.getElementById('next-episode');
 const loadingOverlay = document.getElementById('loading-overlay');
 const finishButtonContainer = document.getElementById('finish-button-container');
 const roundNumberElement = document.getElementById('round-number');
+const roundHeader = document.getElementById('round-header');
+const startGameOverlay = document.getElementById('start-game-overlay');
+const startGameButton = document.getElementById('start-game-button');
 
 // Game state
 let currentEpisode = 1;
@@ -66,6 +68,7 @@ let currentSteps = 0;
 let episodesCompleted = 0;
 let roundScores = [];
 let episodeNum = 1;
+let gameStarted = false;  // Track if game has been started
 
 // Event Listeners
 
@@ -96,9 +99,20 @@ startTutorialButton.addEventListener('click', () => {
     socket.emit('start_game', { playerName: prolificID, finalStep: 1 });
 });
 
+// Start game button click handler
+startGameButton.addEventListener('click', () => {
+    gameStarted = true;
+    startGameOverlay.style.display = 'none';
+    if (roundHeader) {
+        roundHeader.style.display = 'block';
+    }
+    // Emit event to server to activate auto-actions
+    socket.emit('activate_game');
+});
+
 // Keyboard controls
 document.addEventListener('keydown', (event) => {
-    if (!gamePage.classList.contains('active')) return;
+    if (!gamePage.classList.contains('active') || !gameStarted) return;
 
     let action = null;
     switch (event.key) {
@@ -108,15 +122,14 @@ document.addEventListener('keydown', (event) => {
         case 'ArrowRight':
             action = 'ArrowRight';
             break;
-        case 'ArrowUp':
-            action = 'ArrowUp';
-            break;
-        case '1':
-            action = 'PageUp';
+        case ' ':
+        case 'Space':
+            action = 'Space';
             break;
     }
 
     if (action) {
+        event.preventDefault();  // Prevent default spacebar scrolling
         socket.emit('send_action', action);
     }
 });
@@ -198,10 +211,10 @@ function hideLoading() {
 }
 
 function updateGameState(data) {
-    if (data.image) {
+    if (data.image && gameImage) {
         gameImage.src = `data:image/png;base64,${data.image}`;
     }
-    if (data.score !== undefined) {
+    if (data.score !== undefined && scoreElement) {
         currentScore = data.score;
         scoreElement.textContent = currentScore;
     }
@@ -212,18 +225,23 @@ function updateGameState(data) {
             roundNumberElement.textContent = 1;//currentEpisode;
         }
     }
-    if (data.step_count !== undefined) {
+    if (data.step_count !== undefined && stepsElement) {
         currentSteps = data.step_count;
         stepsElement.textContent = currentSteps;
     }
-    if (data.reward !== undefined) {
-        rewardElement.textContent = data.reward.toFixed(2);
-    }
 
     // Show game page if not already shown
-    if (!gamePage.classList.contains('active')) {
-        welcomePage.classList.remove('active');
+    if (gamePage && !gamePage.classList.contains('active')) {
+        if (welcomePage) welcomePage.classList.remove('active');
         gamePage.classList.add('active');
         hideLoading();
+        // Show start game button after first image is loaded
+        if (!gameStarted && startGameOverlay) {
+            startGameOverlay.style.display = 'flex';
+        }
+        // Show round header only if game has started
+        if (gameStarted && roundHeader) {
+            roundHeader.style.display = 'block';
+        }
     }
 }

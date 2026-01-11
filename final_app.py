@@ -17,6 +17,9 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+# Import procgen environment
+from procgen_env_wrapper import create_fruitbot_env
+
 # Load environment variables
 load_dotenv()
 
@@ -62,6 +65,13 @@ class Users(Base):
     similarity_level = Column(Integer)
     final_score = Column(Float, default=0.0)
 
+# Action mapping for Fruitbot (reduced action space)
+action_mapping = {0: 1,  # Left
+                  1: 4,  # Forward
+                  2: 7,  # Right
+                  3: 9   # Throw
+                  }
+
 def encode_image(img_array):
     """Convert numpy array to base64 encoded image"""
     if isinstance(img_array, np.ndarray):
@@ -80,102 +90,163 @@ class FinalGameControl:
         self.episode_actions = []
         self.episode_images = []
         self.current_obs = None
-        self.agent_last_pos = None
         self.episode_finished = False  # Track if current episode is finished
+        self.step_count = 0
+        self.last_action_time = time.time()
+        self.ready_to_play = False  # Track if player has clicked start game button
         
     def reset(self):
-        # Always use final step configuration with unique_env=100 and from_unique_env=True
-        obs, _ = self.env.unwrapped.reset(unique_env=100, from_unique_env=True)
-        if 'direction' in obs:
-            obs = {'image': obs['image']}
+        # Reset the Fruitbot environment
+        obs = self.env.reset()
+        obs, reward, done, info= self.env.step(1)  # Take an initial forward step to start
+        img = info.get('rgb', obs)
         self.score = 0
+        self.step_count = 0
         self.episode_actions = []
-        self.episode_images = [self.env.get_full_image()]
+        self.episode_images = []
         self.current_obs = obs
-        self.agent_last_pos = self.env.get_wrapper_attr('agent_pos')
         self.episode_finished = False  # Reset episode finished flag
-        return obs
+        self.last_action_time = time.time()
+        print(f"results img: {img}")
+        return img
 
     def step(self, action):
-        observation, reward, terminated, truncated, info = self.env.step(action)
-        done = terminated or truncated
+        if self.episode_finished:
+            # Don't take more actions if episode is finished
+            return None
+            
+        observation, reward, done, info = self.env.step(action_mapping[action])
+        self.last_action_time = time.time()
+        
         self.episode_actions.append(action)
-        self.episode_images.append(self.env.get_full_image())
+        self.step_count += 1
+        
         reward = round(float(reward), 1)
         self.score += reward
         self.score = round(self.score, 1)
+        
         if done:
             self.last_score = self.score
             self.episode_finished = True  # Mark episode as finished
-        img = self.env.render()
+        
+        # In procgen with old gym, observation is the RGB image
         self.current_obs = observation
-        self.agent_last_pos = self.env.get_wrapper_attr('agent_pos')
+        img = info.get('rgb', observation)
+        
         return {
             'image': encode_image(img),
-            'episode': self.episode_num,
-            'reward': reward,
-            'done': done,
-            'score': self.score,
-            'last_score': self.last_score,
-            'step_count': int(self.env.get_wrapper_attr('step_count'))
+            'episode': int(self.episode_num),
+            'reward': float(reward),
+            'done': bool(done),
+            'score': float(self.score),
+            'last_score': float(self.last_score),
+            'step_count': int(self.step_count)
         }
 
     def handle_action(self, action_str):
         # Prevent actions if episode is already finished
         if self.episode_finished:
             # Return the current state without taking any action
-            img = self.env.render()
+            img = self.current_obs
             return {
                 'image': encode_image(img),
-                'episode': self.episode_num,
+                'episode': int(self.episode_num),
                 'reward': 0.0,
                 'done': True,
-                'score': self.score,
-                'last_score': self.last_score,
-                'step_count': int(self.env.get_wrapper_attr('step_count'))
+                'score': float(self.score),
+                'last_score': float(self.last_score),
+                'step_count': int(self.step_count)
             }
         
+        # Map keyboard input to Fruitbot actions
+        # With action_mapping: 0: left, 1: forward, 2: right, 3: throw
         key_to_action = {
-            "ArrowLeft": Actions.left,
-            "ArrowRight": Actions.right,
-            "ArrowUp": Actions.forward,
-            "Space": Actions.toggle,
-            "PageUp": Actions.pickup,
-            "PageDown": Actions.drop,
-            "1": Actions.pickup,
-            "2": Actions.drop,
+            "ArrowLeft": 0,   # left
+            "ArrowRight": 2,  # right
+            "Space": 3,       # throw
         }
+        
+        if action_str not in key_to_action:
+            return None
+            
         return self.step(key_to_action[action_str])
 
     def get_initial_observation(self):
-        self.current_obs = self.reset()
-        img = self.env.render()
+        obs = self.reset()
         self.episode_num += 1
+        # Return the initial frame WITHOUT taking any step (game is paused until green button)
         return {
-            'image': encode_image(img),
+            'image': encode_image(obs),
             'last_score': float(self.last_score),
             'action': None,
             'reward': 0.0,
             'done': False,
             'score': 0.0,
-            'episode': self.episode_num,
-            'step_count': int(self.env.get_wrapper_attr('step_count'))
+            'episode': int(self.episode_num),
+            'step_count': int(self.step_count)
         }
 
 # Global variables for Final App only
+# Global variables for Final App only
 final_game_controls = {}
 final_sid_to_user = {}
+final_game_controls_lock = asyncio.Lock()
+final_sid_to_user_lock = asyncio.Lock()
+
+async def auto_action_handler():
+    """Handle automatic actions when user doesn't press anything"""
+    while True:
+        await asyncio.sleep(0.02)  # Check every 20ms for smoother gameplay (50 FPS)
+        
+        current_time = time.time()
+        
+        # We need to be careful with locking while iterating
+        # Strategy: Lock, get list of user_ids to check, unlock. Then lock per user if needed or just lock whole thing briefly.
+        # Simple/Safe Strategy: Lock whole iteration. It's fast (in-memory state check).
+        
+        async with final_game_controls_lock:
+            # Create a copy or iterate efficiently
+            # We can iterate directly since we hold the lock
+            game_items = list(final_game_controls.items())
+            
+        for user_id, game in game_items:
+             # Re-acquire lock to check/update specific game state
+             # This prevents race conditions if a user disconnects/finishes concurrently
+             async with final_game_controls_lock:
+                 if user_id not in final_game_controls:
+                     continue
+                 game = final_game_controls[user_id]
+                 
+                 if game.episode_finished or not game.ready_to_play:
+                     continue
+                 
+                 # If minimal time has passed since last action, execute forward action
+                 if current_time - game.last_action_time >= 0.05:
+                     # Use action 1 (forward) as default auto-action
+                     result = game.step(1)  # forward
+                     
+                     if result:
+                         game.last_action_time = current_time
+                         current_result = result
+                     else:
+                         current_result = None
+            
+             if current_result:
+                 # Helper to get sids (needs its own lock)
+                 user_sids = []
+                 async with final_sid_to_user_lock:
+                     user_sids = [sid for sid, uid in final_sid_to_user.items() if uid == user_id]
+                 
+                 # Emit to all sessions for this user
+                 for sid in user_sids:
+                     if current_result.get('episode_finished') or current_result.get('done'):
+                         await sio.emit("episode_finished", current_result, to=sid)
+                     else:
+                         await sio.emit("game_update", current_result, to=sid)
 
 def create_new_env():
-    env_instance = CustomEnv(grid_size=8, 
-                           render_mode="rgb_array", 
-                           image_full_view=False,
-                           highlight=True, 
-                           max_steps=70, 
-                           num_objects=5, 
-                           lava_cells=4, 
-                           partial_obs=True)
-    env_instance = NoDeath(ObjObsWrapper(env_instance), no_death_types=("lava",), death_cost=-3.0)
+    """Create a Fruitbot environment for the final game"""
+    env_instance = create_fruitbot_env()
     return env_instance
 
 # FastAPI Routes for Final App
@@ -218,10 +289,12 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     print(f"Final App - Client disconnected: {sid}")
-    # Clean up user mapping and game control
-    user_id = final_sid_to_user.get(sid)
-    if sid in final_sid_to_user:
-        del final_sid_to_user[sid]
+    
+    async with final_sid_to_user_lock:
+        user_id = final_sid_to_user.get(sid)
+        if sid in final_sid_to_user:
+            del final_sid_to_user[sid]
+            
     # Optionally clean up game control for this user to free memory
     # if user_id and user_id in final_game_controls:
     #     del final_game_controls[user_id]
@@ -257,31 +330,35 @@ async def start_game(sid, data):
         
         print(f"Final App - Start game request from {sid} for user {user_id}")
         
-        # Clean up any existing mapping for this user
-        old_sid = None
-        for existing_sid, existing_user in list(final_sid_to_user.items()):
-            if existing_user == user_id:
-                old_sid = existing_sid
-                break
+        async with final_sid_to_user_lock:
+            # Clean up any existing mapping for this user
+            old_sid = None
+            for existing_sid, existing_user in list(final_sid_to_user.items()):
+                if existing_user == user_id:
+                    old_sid = existing_sid
+                    break
+            
+            if old_sid and old_sid != sid:
+                print(f"Final App - Replacing old connection {old_sid} with new connection {sid} for user {user_id}")
+                del final_sid_to_user[old_sid]
+                # Disconnect old session
+                await sio.disconnect(old_sid)
+            
+            final_sid_to_user[sid] = user_id
         
-        if old_sid and old_sid != sid:
-            print(f"Final App - Replacing old connection {old_sid} with new connection {sid} for user {user_id}")
-            del final_sid_to_user[old_sid]
-            # Disconnect old session
-            await sio.disconnect(old_sid)
+        async with final_game_controls_lock:
+            if user_id not in final_game_controls:
+                env_instance = create_new_env()
+                new_game = FinalGameControl(env_instance)
+                final_game_controls[user_id] = new_game
+                print(f"Final App - Created new game control for user {user_id}")
+            else:
+                new_game = final_game_controls[user_id]
+                print(f"Final App - Reusing existing game control for user {user_id}")
+            
+            # Get initial observation within the lock to ensure state consistency
+            response = new_game.get_initial_observation()
         
-        final_sid_to_user[sid] = user_id
-        
-        if user_id not in final_game_controls:
-            env_instance = create_new_env()
-            new_game = FinalGameControl(env_instance)
-            final_game_controls[user_id] = new_game
-            print(f"Final App - Created new game control for user {user_id}")
-        else:
-            new_game = final_game_controls[user_id]
-            print(f"Final App - Reusing existing game control for user {user_id}")
-        
-        response = new_game.get_initial_observation()
         response['action'] = None
         await sio.emit("game_update", response, to=sid)
         print(f"Final App - Sent initial observation to {sid}")
@@ -302,26 +379,30 @@ async def send_action(sid, action):
             await sio.emit("error", {"error": "Invalid action - empty"}, to=sid)
             return
         
-        user_id = final_sid_to_user.get(sid)
+        async with final_sid_to_user_lock:
+            user_id = final_sid_to_user.get(sid)
+        
         if not user_id:
             print(f"Final App - No user mapping for sid {sid}")
             await sio.emit("error", {"error": "Session not found - please refresh"}, to=sid)
             return
             
-        if user_id not in final_game_controls:
-            print(f"Final App - No game control for user {user_id}")
-            await sio.emit("error", {"error": "Game not initialized - please start game"}, to=sid)
-            return
-        user_game = final_game_controls[user_id]
-        
-        # Validate the action is supported
-        valid_actions = ["ArrowLeft", "ArrowRight", "ArrowUp", "Space", "PageUp", "PageDown", "1", "2"]
-        if action not in valid_actions:
-            # print(f"Final App - Invalid action {action} from user {user_id}")
-            await sio.emit("error", {"error": f"Invalid action: {action}"}, to=sid)
-            return
+        async with final_game_controls_lock:
+            if user_id not in final_game_controls:
+                print(f"Final App - No game control for user {user_id}")
+                await sio.emit("error", {"error": "Game not initialized - please start game"}, to=sid)
+                return
+            user_game = final_game_controls[user_id]
             
-        response = user_game.handle_action(action)
+            # Validate the action is supported
+            valid_actions = ["ArrowLeft", "ArrowRight", "ArrowUp", "Space", "PageUp", "PageDown", "1", "2"]
+            if action not in valid_actions:
+                # print(f"Final App - Invalid action {action} from user {user_id}")
+                await sio.emit("error", {"error": f"Invalid action: {action}"}, to=sid)
+                return
+                
+            response = user_game.handle_action(action)
+        
         response["action"] = action
 
         # Database saving for individual actions is disabled
@@ -353,21 +434,42 @@ async def send_action(sid, action):
         await sio.emit("error", {"error": f"Action failed: {str(e)}"}, to=sid)
 
 @sio.event
+async def activate_game(sid):
+    """Activate auto-actions when user clicks green start button"""
+    try:
+        async with final_sid_to_user_lock:
+            user_id = final_sid_to_user.get(sid)
+        if not user_id:
+            print(f"Final App - No user mapping for sid {sid} in activate_game")
+            return
+            
+        async with final_game_controls_lock:
+            if user_id in final_game_controls:
+                final_game_controls[user_id].ready_to_play = True
+                print(f"Final App - Game activated for user {user_id}")
+            
+    except Exception as e:
+        print(f"Final App - Error in activate_game: {e}")
+
+@sio.event
 async def next_episode(sid):
     try:
-        user_id = final_sid_to_user.get(sid)
+        async with final_sid_to_user_lock:
+            user_id = final_sid_to_user.get(sid)
         if not user_id:
             print(f"Final App - No user mapping for sid {sid} in next_episode")
             await sio.emit("error", {"error": "Session not found - please refresh"}, to=sid)
             return
             
-        if user_id not in final_game_controls:
-            print(f"Final App - No game control for user {user_id} in next_episode")
-            await sio.emit("error", {"error": "Game not initialized - please start game"}, to=sid)
-            return
+        async with final_game_controls_lock:
+            if user_id not in final_game_controls:
+                print(f"Final App - No game control for user {user_id} in next_episode")
+                await sio.emit("error", {"error": "Game not initialized - please start game"}, to=sid)
+                return
             
-        user_game = final_game_controls[user_id]
-        response = user_game.get_initial_observation()
+            user_game = final_game_controls[user_id]
+            response = user_game.get_initial_observation()
+            
         await sio.emit("game_update", response, to=sid)
         print(f"Final App - Started next episode for user {user_id}")
         
@@ -383,21 +485,23 @@ async def cleanup_stale_connections():
             await asyncio.sleep(300)  # Run every 5 minutes
             current_time = datetime.datetime.utcnow()
             
-            # Clean up game controls for users with no active connections
-            stale_users = []
-            for user_id in list(final_game_controls.keys()):
-                # Check if user has any active connections
-                user_has_connection = any(u == user_id for u in final_sid_to_user.values())
-                if not user_has_connection:
-                    stale_users.append(user_id)
-            
-            for user_id in stale_users:
-                if user_id in final_game_controls:
-                    del final_game_controls[user_id]
-                    print(f"Final App - Cleaned up stale game control for user: {user_id}")
-                    
-            if stale_users:
-                print(f"Final App - Cleanup completed. Active connections: {len(final_sid_to_user)}, Active games: {len(final_game_controls)}")
+            async with final_game_controls_lock:
+                # Clean up game controls for users with no active connections
+                stale_users = []
+                for user_id in list(final_game_controls.keys()):
+                    # Check if user has any active connections
+                    async with final_sid_to_user_lock:
+                        user_has_connection = any(u == user_id for u in final_sid_to_user.values())
+                    if not user_has_connection:
+                        stale_users.append(user_id)
+                
+                for user_id in stale_users:
+                    if user_id in final_game_controls:
+                        del final_game_controls[user_id]
+                        print(f"Final App - Cleaned up stale game control for user: {user_id}")
+                        
+                if stale_users:
+                    print(f"Final App - Cleanup completed. Active connections: {len(final_sid_to_user)}, Active games: {len(final_game_controls)}")
                 
         except Exception as e:
             print(f"Final App - Error in cleanup task: {e}")
@@ -409,6 +513,8 @@ if __name__ == "__main__":
     async def run_app():
         # Start the cleanup task
         cleanup_task = asyncio.create_task(cleanup_stale_connections())
+        # Start auto-action task
+        auto_task = asyncio.create_task(auto_action_handler())
         
         # Import uvicorn here to avoid import order issues
         import uvicorn

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minigrid Tutorial</title>
+    <title>FruitBot Final</title>
     <style>
         body, html {
             height: 100%;
@@ -151,6 +151,27 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        #start-game-overlay {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 20px;
+            z-index: 20;
+        }
+        #start-game-overlay button {
+            padding: 20px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        #start-game-overlay button:hover {
+            background-color: #45a049;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
@@ -158,23 +179,21 @@
     <!-- Cover Page -->
     <div id="cover-page" class="page active">
         <h1>Final Episode</h1>
-        <button id="cover-start-button">Start</button>
+        <button id="cover-start-button">Continue</button>
     </div>
 
     <!-- Welcome Page -->
     <div id="welcome-page" class="page active">
         <div id="welcome-page-content" style="text-align: left; align-items: flex-start; display: flex; flex-direction: column;">
-            <h2 style="font-size: 2.7em; font-weight: bold; margin-bottom: 0.3em; text-align: left;">Welcome Back to the Minigrid Game</h2>
+            <h2 style="font-size: 2.7em; font-weight: bold; margin-bottom: 0.3em; text-align: left;">Welcome to the Fruitbot Game</h2>
              <p style="margin-left: 0; font-size: 1.2em;">This time you will play only one round, and the bonus will be proportional to your performance.</p>
-            <!--<p style="margin-left: 0; font-size: 1.2em;">Your objective is to maximize the score in each round.</p>
-            <p style="margin-left: 0; font-size: 1.2em;">Below the image, you'll see the reward earned for each move and your round's total score so far.</p> -->
+            <p style="margin-left: 0; font-size: 1.2em;">Your objective is to collect fruits and avoid enemies.</p>
             <div id="key-instructions" style="margin-top: 18px; margin-bottom: 0; border: 1px solid black; border-radius: 8px; padding: 14px 18px; background: #f8f8f8; min-width: 180px; max-width: 320px;">
                 <h3 style="margin-top: 0; margin-bottom: 8px; text-align: center;">Controls:</h3>
                 <ul style="margin: 0 auto; padding-left: 20px; margin-top: 0; display: table; text-align: left;">
-                    <li>&uarr; : Move forward</li>
-                    <li>&larr; : Turn left</li>
-                    <li>&rarr; : Turn right</li>
-                    <li>1 : Pickup</li>
+                    <li>&larr; : Move left</li>
+                    <li>&rarr; : Move right</li>
+                    <li>Space : Throw key</li>
                 </ul>
             </div>
 
@@ -185,7 +204,10 @@
     <!-- Game Page -->
     <div id="game-page" class="page">
         <div id="game-container">
-            <h2 id="round-header" style="width: 100%; text-align: center; margin-bottom: 10px; font-size: 2em;">Round <span id="round-number">1</span></h2>
+            <div id="start-game-overlay" style="display: none;">
+                <button id="start-game-button">Start Game</button>
+            </div>
+            <h2 id="round-header" style="width: 100%; text-align: center; margin-bottom: 10px; font-size: 2em; display: none;">Round <span id="round-number">1</span></h2>
             <div id="game-content" style="position: relative;">
                 <div id="game-image-container">
                     <div id="step-count">Steps: <span id="steps">0</span></div>
@@ -195,26 +217,22 @@
                     <div id="key-instructions">
                         <h3>Controls:</h3>
                         <ul>
-                            <li>&uarr; : Move forward</li>
-                            <li>&larr; : Turn left</li>
-                            <li>&rarr; : Turn right</li>
-                            <li>1 : Pickup</li>
+                            <li>&larr; : Move left</li>
+                            <li>&rarr; : Move right</li>
+                            <li>Space : Throw key</li>
                         </ul>
                     </div>
                     <div id="map-legend" style="margin-top: 20px; border: 1px solid #aaa; border-radius: 8px; padding: 16px; background: #f9f9f9; min-width: 160px; max-width: 200px; display: flex; flex-direction: column; align-items: flex-start;">
-                        <h4 style="margin-top:0;">Scores</h4>
-                        <div style="display: flex; align-items: center; margin-bottom: 8px;"><span style="display:inline-block;width:22px;height:22px;background:#3498db;border-radius:50%;margin-right:10px;border:2px solid #222;"></span> Blue Ball = <b style="margin-left:5px;">4</b></div>
-                        <div style="display: flex; align-items: center; margin-bottom: 8px;"><span style="display:inline-block;width:22px;height:22px;background:#27ae60;border-radius:50%;margin-right:10px;border:2px solid #222;"></span> Green Ball = <b style="margin-left:5px;">2</b></div>
-                        <div style="display: flex; align-items: center; margin-bottom: 8px;"><span style="display:inline-block;width:22px;height:22px;background:#e74c3c;border-radius:50%;margin-right:10px;border:2px solid #222;"></span> Red Ball = <b style="margin-left:5px;">-1</b></div>
-                        <div style="display: flex; align-items: center; margin-bottom: 8px;"><span style="display:inline-block;width:22px;height:22px;background:#27ae60;margin-right:10px;border:2px solid #222;"></span> Goal = <b style="margin-left:5px;">5</b></div>
-                        <div style="display: flex; align-items: center; margin-bottom: 0;"><span style="display:inline-block;width:22px;height:22px;margin-right:10px;border:2px solid #222;"><img src="static/images/lava_cell.png" alt="Lava" style="width:100%;height:100%;object-fit:cover;border-radius:5px;"></span>Lava = -3</div>
+                        <h4 style="margin-top:0;">Game Info</h4>
+                        <p style="margin: 0;"><b>Collect fruits</b> for points</p>
+                        <p style="margin: 8px 0 0 0;"><b>Avoid enemies</b> or eliminate them with thrown keys</p>
+                        <p style="margin: 8px 0 0 0;">Character <b>automatically moves forward</b></p>
                     </div>
                 </div>
             </div>
             <div id="info-container">
                 <p>Score: <span id="score">0</span></p>
                 <!-- <p>Round: <span id="episode">1</span></p> -->
-                <div id="reward-display">Last Action Reward: <span id="reward">0</span></div>
             </div>
             
         </div>
