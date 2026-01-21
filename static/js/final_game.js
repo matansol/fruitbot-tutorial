@@ -43,93 +43,69 @@ function connectSocket() {
 }
 
 // DOM Elements
+const coverPage = document.getElementById('cover-page');
+const coverStartButton = document.getElementById('cover-start-button');
 const welcomePage = document.getElementById('welcome-page');
 const gamePage = document.getElementById('game-page');
 const finishPage = document.getElementById('finish-page');
 const scoreList = document.getElementById('score-list');
 const startTutorialButton = document.getElementById('start-tutorial');
-const playerNameInput = document.getElementById('player-name');
 const gameImage = document.getElementById('game-image');
 const scoreElement = document.getElementById('score');
-// const episodeElement = document.getElementById('episode');
 const stepsElement = document.getElementById('steps');
-const nextEpisodeButton = document.getElementById('next-episode');
 const loadingOverlay = document.getElementById('loading-overlay');
-const finishButtonContainer = document.getElementById('finish-button-container');
 const roundNumberElement = document.getElementById('round-number');
 const roundHeader = document.getElementById('round-header');
 const startGameOverlay = document.getElementById('start-game-overlay');
 const startGameButton = document.getElementById('start-game-button');
 
 // Game state
-let currentEpisode = 1;
 let currentScore = 0;
 let currentSteps = 0;
-let episodesCompleted = 0;
-let roundScores = [];
-let episodeNum = 1;
-let gameStarted = false;  // Track if game has been started
+let gameStarted = false;
 
-// Event Listeners
-
-// --- PROLIFIC ID HANDLING ---
-function getProlificIdOrRandom() {
+// Get Prolific ID from URL or generate random
+function getProlificId() {
     const params = new URLSearchParams(window.location.search);
-    let prolificId = params.get('prolificID');
-    if (prolificId && prolificId.trim() !== '') {
-        return prolificId;
-    } else {
-        // Generate a random number between 1 and 100
-        return Math.floor(Math.random() * 100) + 1;
-    }
+    const id = params.get('prolificID');
+    return (id && id.trim()) ? id : `user_${Date.now()}`;
 }
-const prolificID = getProlificIdOrRandom();
+const prolificID = getProlificId();
 
-// // --- FINAL STEP HANDLING ---
-// function getFinalStepParameter() {
-//     const params = new URLSearchParams(window.location.search);
-//     let finalStep = 1 //params.get('finalStep');
-//     return finalStep; // === '0' ? 0 : 1;
-// }
-const finalStep = 1;//getFinalStepParameter();  
-
-startTutorialButton.addEventListener('click', () => {
-    showLoading();
-    connectSocket();  // Connect to socket before starting game
-    socket.emit('start_game', { playerName: prolificID, finalStep: 1 });
+// Cover page -> Welcome page transition
+coverStartButton.addEventListener('click', () => {
+    coverPage.classList.remove('active');
+    welcomePage.classList.add('active');
 });
 
-// Start game button click handler
+// Welcome page -> Game page transition
+startTutorialButton.addEventListener('click', () => {
+    showLoading();
+    connectSocket();
+    socket.emit('start_game', { playerName: prolificID });
+});
+
+// Green "Start Game" button -> activates the game
 startGameButton.addEventListener('click', () => {
     gameStarted = true;
     startGameOverlay.style.display = 'none';
-    if (roundHeader) {
-        roundHeader.style.display = 'block';
-    }
-    // Emit event to server to activate auto-actions
+    if (roundHeader) roundHeader.style.display = 'block';
     socket.emit('activate_game');
 });
 
 // Keyboard controls
+const KEY_ACTIONS = {
+    'ArrowLeft': 'ArrowLeft',
+    'ArrowRight': 'ArrowRight',
+    ' ': 'Space'
+};
+
 document.addEventListener('keydown', (event) => {
     if (!gamePage.classList.contains('active') || !gameStarted) return;
-
-    let action = null;
-    switch (event.key) {
-        case 'ArrowLeft':
-            action = 'ArrowLeft';
-            break;
-        case 'ArrowRight':
-            action = 'ArrowRight';
-            break;
-        case ' ':
-        case 'Space':
-            action = 'Space';
-            break;
-    }
-
+    
+    const action = KEY_ACTIONS[event.key];
     if (action) {
-        event.preventDefault();  // Prevent default spacebar scrolling
+        event.preventDefault();
         socket.emit('send_action', action);
     }
 });
@@ -160,41 +136,25 @@ socket.on('game_update', (data) => {
 
 socket.on('episode_finished', (data) => {
     updateGameState(data);
-    episodeNum++;
-    if (data.score !== undefined) {
-        roundScores.push(data.score);
+    
+    // Show finish page
+    gamePage.classList.remove('active');
+    finishPage.classList.add('active');
+    
+    // Calculate bonus level based on score
+    const score = data.score || 0;
+    const scoreLevel = score > 13 ? 3 : (score > 11 ? 2 : 1);
+    
+    // Update confirmation number
+    const confirmationElement = document.getElementById('confirmation-number');
+    if (confirmationElement) {
+        confirmationElement.textContent = `232${scoreLevel}`;
     }
     
-    // Handle finalStep case - finish after just 1 episode
-    if (finalStep === 1) {
-        gamePage.classList.remove('active');
-        finishPage.classList.add('active');
-        
-        // Calculate score level and update confirmation number
-        const score = data.score || 0;
-        let scoreLevel = 1;
-        if (score > 13) scoreLevel = 3;
-        else if (score > 11) scoreLevel = 2;
-        else scoreLevel = 1;
-
-        
-        const confirmationNumber = `232${scoreLevel}`;
-        const confirmationElement = document.getElementById('confirmation-number');
-        if (confirmationElement) {
-            confirmationElement.textContent = confirmationNumber;
-        }
-        
-        // Populate the scores list on the finish page
-        if (scoreList) {
-            scoreList.innerHTML = '';
-            const li = document.createElement('li');
-            li.textContent = `Final Score: ${score}`;
-            li.style.listStyleType = 'none';
-            scoreList.appendChild(li);
-        }
-        return;
+    // Show final score
+    if (scoreList) {
+        scoreList.innerHTML = `<li style="list-style-type: none;">Final Score: ${score}</li>`;
     }
-    
 });
 
 socket.on('error', (data) => {
@@ -211,37 +171,26 @@ function hideLoading() {
 }
 
 function updateGameState(data) {
+    // Update game display
     if (data.image && gameImage) {
         gameImage.src = `data:image/png;base64,${data.image}`;
     }
     if (data.score !== undefined && scoreElement) {
-        currentScore = data.score;
-        scoreElement.textContent = currentScore;
-    }
-    if (data.episode !== undefined) {
-        currentEpisode = data.episode;
-        // episodeElement.textContent = currentEpisode;
-        if (roundNumberElement) {
-            roundNumberElement.textContent = 1;//currentEpisode;
-        }
+        scoreElement.textContent = data.score;
     }
     if (data.step_count !== undefined && stepsElement) {
-        currentSteps = data.step_count;
-        stepsElement.textContent = currentSteps;
+        stepsElement.textContent = data.step_count;
     }
 
-    // Show game page if not already shown
+    // Transition to game page on first update
     if (gamePage && !gamePage.classList.contains('active')) {
-        if (welcomePage) welcomePage.classList.remove('active');
+        welcomePage?.classList.remove('active');
         gamePage.classList.add('active');
         hideLoading();
-        // Show start game button after first image is loaded
+        
+        // Show start button overlay (game paused until clicked)
         if (!gameStarted && startGameOverlay) {
             startGameOverlay.style.display = 'flex';
-        }
-        // Show round header only if game has started
-        if (gameStarted && roundHeader) {
-            roundHeader.style.display = 'block';
         }
     }
 }
