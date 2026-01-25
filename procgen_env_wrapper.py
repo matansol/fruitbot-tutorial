@@ -41,13 +41,31 @@ def create_fruitbot_env():
     if not PROCGEN_AVAILABLE:
         return MockEnv()
 
+    # Define environment parameters as requested
+    env_kwargs = {
+        "num_levels": 0,  # 0 means infinite levels
+        "start_level": 0,
+        "distribution_mode": "easy",
+        "render_mode": "rgb_array",
+        # Environment structuring
+        "fruitbot_num_walls": 3,
+        "fruitbot_num_good_min": 5,
+        "fruitbot_num_good_range": 0,
+        "fruitbot_num_bad_min": 5,
+        "fruitbot_num_bad_range": 0,
+        "food_diversity": 6,
+        "fruitbot_reward_positive": 1,
+        "fruitbot_reward_negative": -1,
+        "fruitbot_reward_wall_hit": -3,
+        "fruitbot_wall_gap_pct": 30,
+        "fruitbot_door_prob_pct": 50,
+        "fruitbot_reward_step": 0,
+        "fruitbot_reward_completion": 5,
+        }
+
+
+
     # Create the base procgen environment using the old gym API
-    env = old_gym.make(
-        "procgen-fruitbot-v0",
-        num_levels=10,  # Use procedurally generated levels
-        start_level=0,
-        distribution_mode="easy",
-        render_mode="rgb_array"
-    )
+    env = old_gym.make("procgen-fruitbot-v0", **env_kwargs)
     
     return env

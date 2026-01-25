@@ -43,8 +43,6 @@ function connectSocket() {
 }
 
 // DOM Elements
-const coverPage = document.getElementById('cover-page');
-const coverStartButton = document.getElementById('cover-start-button');
 const welcomePage = document.getElementById('welcome-page');
 const gamePage = document.getElementById('game-page');
 const finishPage = document.getElementById('finish-page');
@@ -62,7 +60,7 @@ const startGameButton = document.getElementById('start-game-button');
 // Game state
 let currentScore = 0;
 let currentSteps = 0;
-let gameStarted = false;
+let gameReady = false;  // Flag to track if 3-second delay has passed
 
 // Get Prolific ID from URL or generate random
 function getProlificId() {
@@ -72,42 +70,80 @@ function getProlificId() {
 }
 const prolificID = getProlificId();
 
-// Cover page -> Welcome page transition
-coverStartButton.addEventListener('click', () => {
-    coverPage.classList.remove('active');
-    welcomePage.classList.add('active');
-});
-
 // Welcome page -> Game page transition
 startTutorialButton.addEventListener('click', () => {
     showLoading();
-    connectSocket();
-    socket.emit('start_game', { playerName: prolificID });
+    
+    // If already connected, start immediately
+    if (socket.connected) {
+        socket.emit('start_game', { playerName: prolificID });
+    } else {
+        // Connect and emit start_game once connected
+        connectSocket();
+        socket.once('connect', () => {
+            socket.emit('start_game', { playerName: prolificID });
+        });
+    }
 });
 
-// Green "Start Game" button -> activates the game
-startGameButton.addEventListener('click', () => {
-    gameStarted = true;
-    startGameOverlay.style.display = 'none';
-    if (roundHeader) roundHeader.style.display = 'block';
-    socket.emit('activate_game');
-});
+// Remove start game button overlay logic (game starts immediately)
+// Green button functionality removed - game auto-starts
 
-// Keyboard controls
-const KEY_ACTIONS = {
-    'ArrowLeft': 'ArrowLeft',
-    'ArrowRight': 'ArrowRight',
-    ' ': 'Space'
-};
+// Keyboard controls - NEW: Continuous key tracking
+const keysCurrentlyPressed = new Set();
 
 document.addEventListener('keydown', (event) => {
-    if (!gamePage.classList.contains('active') || !gameStarted) return;
+    if (!gamePage.classList.contains('active') || !socket.connected || !gameReady) return;
     
-    const action = KEY_ACTIONS[event.key];
-    if (action) {
-        event.preventDefault();
-        socket.emit('send_action', action);
+    let key = null;
+    switch (event.key) {
+        case 'ArrowLeft':
+            key = 'ArrowLeft';
+            break;
+        case 'ArrowRight':
+            key = 'ArrowRight';
+            break;
+        case ' ':  // Space key for throw
+            key = 'Space';
+            event.preventDefault();  // Prevent page scroll
+            break;
     }
+    
+    // Only send if key is valid and not already pressed (avoid key repeat)
+    if (key && !keysCurrentlyPressed.has(key)) {
+        keysCurrentlyPressed.add(key);
+        socket.emit('key_down', { key: key });
+    }
+});
+
+document.addEventListener('keyup', (event) => {
+    if (!gamePage.classList.contains('active') || !socket.connected || !gameReady) return;
+    
+    let key = null;
+    switch (event.key) {
+        case 'ArrowLeft':
+            key = 'ArrowLeft';
+            break;
+        case 'ArrowRight':
+            key = 'ArrowRight';
+            break;
+        case ' ':
+            key = 'Space';
+            break;
+    }
+    
+    if (key && keysCurrentlyPressed.has(key)) {
+        keysCurrentlyPressed.delete(key);
+        socket.emit('key_up', { key: key });
+    }
+});
+
+// Clear all keys when window loses focus (prevents stuck keys)
+window.addEventListener('blur', () => {
+    keysCurrentlyPressed.forEach(key => {
+        socket.emit('key_up', { key: key });
+    });
+    keysCurrentlyPressed.clear();
 });
 
 // Socket.IO event handlers for polling+WebSocket fallback
@@ -131,6 +167,12 @@ socket.on('disconnect', (reason) => {
 });
 
 socket.on('game_update', (data) => {
+    updateGameState(data);
+});
+
+// NEW: Listen for continuous frame updates from server
+socket.on('frame', (data) => {
+    // Frames come continuously at ~15 FPS from server
     updateGameState(data);
 });
 
@@ -173,7 +215,14 @@ function hideLoading() {
 function updateGameState(data) {
     // Update game display
     if (data.image && gameImage) {
-        gameImage.src = `data:image/png;base64,${data.image}`;
+        // Check if image already has data URI prefix
+        if (data.image.startsWith('data:image/')) {
+            gameImage.src = data.image;
+        } else {
+            // Support both PNG and JPEG images
+            const format = data.image.startsWith('/9j/') ? 'jpeg' : 'png';
+            gameImage.src = `data:image/${format};base64,${data.image}`;
+        }
     }
     if (data.score !== undefined && scoreElement) {
         scoreElement.textContent = data.score;
@@ -187,10 +236,14 @@ function updateGameState(data) {
         welcomePage?.classList.remove('active');
         gamePage.classList.add('active');
         hideLoading();
+        if (roundHeader) roundHeader.style.display = 'block';
         
-        // Show start button overlay (game paused until clicked)
-        if (!gameStarted && startGameOverlay) {
-            startGameOverlay.style.display = 'flex';
-        }
+        // Start 1-second delay before enabling controls
+        gameReady = false;
+        console.log('Game starting in 1 seconds...');
+        setTimeout(() => {
+            gameReady = true;
+            console.log('Game controls enabled!');
+        }, 1000);
     }
 }

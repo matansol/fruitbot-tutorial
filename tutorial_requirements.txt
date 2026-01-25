@@ -12,6 +12,5 @@ Flask==3.0.3
 Flask_SocketIO==5.3.6
 flask_sqlalchemy==3.1.1
 PyMySQL==1.1.1
-procgen==0.10.7
 
 

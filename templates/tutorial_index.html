@@ -166,19 +166,15 @@
         <div id="welcome-page-content" style="text-align: left; align-items: flex-start; display: flex; flex-direction: column;">
             <h2 style="font-size: 2.7em; font-weight: bold; margin-bottom: 0.3em; text-align: left;">Welcome to the Fruitbot Tutorial</h2>
             <p style="margin-left: 0; font-size: 1.2em;">Get familiar with the platformer game environment and practice your skills.</p>
-            <p style="margin-left: 0; font-size: 1.2em;">Your objective is to maximize the score by collecting fruit in each round.</p>
-            <p style="margin-left: 0; font-size: 1.2em;">Below the game screen, you'll see the reward earned for each move and your round's total score so far.</p>
+            <p style="margin-left: 0; font-size: 1.2em;">Your objective is to maximize the score by collecting only fruits in each round.</p>
             <div id="key-instructions" style="margin-top: 18px; margin-bottom: 0; border: 1px solid black; border-radius: 8px; padding: 14px 18px; background: #f8f8f8; min-width: 180px; max-width: 320px;">
                 <h3 style="margin-top: 0; margin-bottom: 8px; text-align: center;">Controls:</h3>
                 <ul style="margin: 0 auto; padding-left: 20px; margin-top: 0; display: table; text-align: left;">
                     <li>&larr; : Move left</li>
                     <li>&rarr; : Move right</li>
                     <li>Space : Throw</li>
-                    <li>Auto-forward: Moves forward automatically</li>
                 </ul>
             </div>
-            <!-- <p>Enter your ID to begin:</p> -->
-            <!-- <input type="text" id="player-name" placeholder="Enter your Prolific ID"> -->
         </div>
     <button id="start-tutorial" style="margin: 32px auto 0 auto; display: block; align-self: center;">Start Tutorial</button>
     </div>
@@ -193,19 +189,56 @@
                     <img id="game-image" src="" alt="Game State">
                 </div>
                 <div style="display: flex; flex-direction: column; margin-left: 20px;">
-                    <div id="key-instructions">
-                        <h3>Controls:</h3>
-                        <ul>
-                            <li>&larr; : Move left</li>
-                            <li>&rarr; : Move right</li>
-                            <li>Space : Throw</li>
-                            <li>Auto-forward: Moves forward automatically</li>
-                        </ul>
+                    <div id="key-instructions" style="padding: 12px 16px; border: 1px solid #2196F3; border-radius: 10px; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h3 style="margin: 0 0 10px 0; text-align: center; color: #1565c0; font-size: 1.1em;">🎮 Controls</h3>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.2em; margin-right: 10px; font-weight: bold;">⬅️</span>
+                                <span style="font-weight: 500; color: #333;">Move left</span>
+                            </div>
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.2em; margin-right: 10px; font-weight: bold;">➡️</span>
+                                <span style="font-weight: 500; color: #333;">Move right</span>
+                            </div>
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.2em; margin-right: 10px; font-weight: bold;">⎵</span>
+                                <span style="font-weight: 500; color: #333;">Throw</span>
+                            </div>
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.2em; margin-right: 10px;">🔄</span>
+                                <span style="font-weight: 500; color: #333;">Auto-forward</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Reward Guide -->
+                    <div id="reward-guide" style="margin-top: 15px; padding: 12px 16px; border: 1px solid #4CAF50; border-radius: 10px; background: linear-gradient(135deg, #f0fff0 0%, #e8f5e9 100%); box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h3 style="margin: 0 0 10px 0; text-align: center; color: #2e7d32; font-size: 1.1em;">🏆 Rewards</h3>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.4em; margin-right: 10px;">🍎</span>
+                                <span style="flex: 1; font-weight: 500; color: #333;">Fruit</span>
+                                <span style="font-weight: bold; color: #2e7d32; font-size: 1.1em;">+1</span>
+                            </div>
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.4em; margin-right: 10px;">🍞</span>
+                                <span style="flex: 1; font-weight: 500; color: #333;">Junk Food</span>
+                                <span style="font-weight: bold; color: #c62828; font-size: 1.1em;">-1</span>
+                            </div>
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.4em; margin-right: 10px;">🧱</span>
+                                <span style="flex: 1; font-weight: 500; color: #333;">Hit Wall</span>
+                                <span style="font-weight: bold; color: #c62828; font-size: 1.1em;">-3</span>
+                            </div>
+                            <div style="display: flex; align-items: center; padding: 6px 10px; background: #fff; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <span style="font-size: 1.4em; margin-right: 10px;">🎁</span>
+                                <span style="flex: 1; font-weight: 500; color: #333;">Finish Line</span>
+                                <span style="font-weight: bold; color: #2e7d32; font-size: 1.1em;">+10</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
             <div id="info-container">
-                <p>Score: <span id="score">0</span></p>
                 <!-- <p>Round: <span id="episode">1</span></p> -->
                 <div id="reward-display">Score: <span id="reward">0</span></div>
             </div>

@@ -89,41 +89,110 @@ const prolificID = getProlificIdOrRandom();
 
 startTutorialButton.addEventListener('click', () => {
     showLoading();
-    socket.emit('start_game', { playerName: prolificID });
+    
+    // If already connected, start immediately
+    if (socket.connected) {
+        socket.emit('start_game', { playerName: prolificID });
+    } else {
+        // Connect and emit start_game once connected
+        connectSocket();
+        socket.once('connect', () => {
+            socket.emit('start_game', { playerName: prolificID });
+        });
+    }
 });
 
 // Keyboard controls with throttling for better responsiveness
-let lastActionTime = 0;
-const ACTION_THROTTLE = 20; // 20ms throttle for faster input response
+// let lastActionTime = 0;
+// const ACTION_THROTTLE = 20; // 20ms throttle for faster input response
+
+// OLD: Single action per keypress
+// document.addEventListener('keydown', (event) => {
+//     if (!gamePage.classList.contains('active') || !socket.connected) return;
+
+//     // Throttle actions to prevent overwhelming the server
+//     const currentTime = Date.now();
+//     if (currentTime - lastActionTime < ACTION_THROTTLE) {
+//         return;
+//     }
+
+//     let action = null;
+//     switch (event.key) {
+//         case 'ArrowLeft':
+//             action = 'ArrowLeft';
+//             break;
+//         case 'ArrowRight':
+//             action = 'ArrowRight';
+//             break;
+//         case ' ':  // Space key for throw
+//             action = 'Space';
+//             event.preventDefault();  // Prevent page scroll
+//             break;
+//     }
+
+//     if (action) {
+//         lastActionTime = currentTime;
+//         console.log('Sending action:', action);
+//         socket.emit('send_action', action);
+//     }
+// });
+
+// NEW: Continuous key tracking - send key_down/key_up events
+// Track which keys are currently pressed to avoid duplicate events
+const keysCurrentlyPressed = new Set();
 
 document.addEventListener('keydown', (event) => {
     if (!gamePage.classList.contains('active') || !socket.connected) return;
-
-    // Throttle actions to prevent overwhelming the server
-    const currentTime = Date.now();
-    if (currentTime - lastActionTime < ACTION_THROTTLE) {
-        return;
-    }
-
-    let action = null;
+    
+    let key = null;
     switch (event.key) {
         case 'ArrowLeft':
-            action = 'ArrowLeft';
+            key = 'ArrowLeft';
             break;
         case 'ArrowRight':
-            action = 'ArrowRight';
+            key = 'ArrowRight';
             break;
         case ' ':  // Space key for throw
-            action = 'Space';
+            key = 'Space';
             event.preventDefault();  // Prevent page scroll
             break;
     }
-
-    if (action) {
-        lastActionTime = currentTime;
-        console.log('Sending action:', action);
-        socket.emit('send_action', action);
+    
+    // Only send if key is valid and not already pressed (avoid key repeat)
+    if (key && !keysCurrentlyPressed.has(key)) {
+        keysCurrentlyPressed.add(key);
+        socket.emit('key_down', { key: key });
     }
+});
+
+document.addEventListener('keyup', (event) => {
+    if (!gamePage.classList.contains('active') || !socket.connected) return;
+    
+    let key = null;
+    switch (event.key) {
+        case 'ArrowLeft':
+            key = 'ArrowLeft';
+            break;
+        case 'ArrowRight':
+            key = 'ArrowRight';
+            break;
+        case ' ':
+            key = 'Space';
+            break;
+    }
+    
+    if (key && keysCurrentlyPressed.has(key)) {
+        keysCurrentlyPressed.delete(key);
+        socket.emit('key_up', { key: key });
+    }
+});
+
+// Clear all keys when window loses focus (prevents stuck keys)
+window.addEventListener('blur', () => {
+    keysCurrentlyPressed.forEach(key => {
+        socket.emit('key_up', { key: key });
+    });
+    keysCurrentlyPressed.clear();
 });
 
 // Socket.IO event handlers for WebSocket-only mode
@@ -200,10 +269,17 @@ socket.on('game_update', (data) => {
     updateGameState(data);
 });
 
+// NEW: Listen for continuous frame updates from server (v2 game loop)
+socket.on('frame', (data) => {
+    // Frames come continuously at ~15 FPS from server
+    updateGameState(data);
+});
+
 socket.on('episode_finished', (data) => {
     console.log('Episode finished:', data);
     hideLoading();
     updateGameState(data);
+    
     if (data && data.episode){
         console.log("found data.episode");
         episodeNum = data.episode;
@@ -254,11 +330,15 @@ function hideLoading() {
 
 function updateGameState(data) {
     if (data.image) {
-        gameImage.src = `data:image/png;base64,${data.image}`;
+        // Support both PNG (v1) and JPEG (v2) images
+        const format = data.image.startsWith('/9j/') ? 'jpeg' : 'png';
+        gameImage.src = `data:image/${format};base64,${data.image}`;
     }
     if (data.score !== undefined) {
         currentScore = data.score;
-        scoreElement.textContent = currentScore;
+        if (scoreElement) {
+            scoreElement.textContent = currentScore;
+        }
     }
     if (data.episode !== undefined) {
         currentEpisode = data.episode;
@@ -269,9 +349,11 @@ function updateGameState(data) {
     }
     if (data.step_count !== undefined) {
         currentSteps = data.step_count;
-        stepsElement.textContent = currentSteps;
+        if (stepsElement) {
+            stepsElement.textContent = currentSteps;
+        }
     }
-    if (data.score !== undefined) {
+    if (data.score !== undefined && rewardElement) {
         rewardElement.textContent = data.score.toFixed(1);
     }
 

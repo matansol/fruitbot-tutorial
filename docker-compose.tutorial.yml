@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  tutorial-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - AZURE_DATABASE_URI=sqlite:///test.db
+    volumes:
+      - ./static:/app/static
+      - ./templates:/app/templates
+    command: uvicorn tutorial_app:socket_app --host 0.0.0.0 --port 8001

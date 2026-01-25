@@ -8,3 +8,9 @@ videos
 wandb
 minigrid_custom.ipynb
 test_db.py
+# Exclude local build artifacts - these are built fresh in Docker
+procgen/.build/
+**/.build/
+*.dll
+*.so
+*.dylib
